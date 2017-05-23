@@ -13,15 +13,44 @@ data FlowPath = FlowPath {
 } deriving (Show, Eq)
 
 
---nain :: Graph -> Graph
---nain graph@(Graph edges src_node sink_node) =
---    let
---        -- Every node in this graph has level
---        indexed_graph = bfs graph src_node
---    in
---        if (sinkReachable indexed_graph) then
---            dfs indexed_graph
--- 
+dinic :: Graph -> Graph
+dinic graph = dinic_ graph True
+
+dinic_ :: Graph -> Bool -> Graph
+-- Stop execution
+dinic_ graph False = graph
+-- Continue
+dinic_ graph True =
+    let
+        ret_pair = step graph
+        new_graph = fst ret_pair
+        can_continue = snd ret_pair
+    in
+        if can_continue then
+            dinic_ new_graph True
+        else
+            dinic_ new_graph False
+
+
+-- Execute bfs and then dfs on the graph. In other words
+-- first divide the graph into layers and then upgrade flow
+-- in every path possible.
+-- The Bool returned from this function is flag whether this
+-- step can be called again.
+step :: Graph -> (Graph, Bool)
+step graph@(Graph edges src_node sink_node) =
+    let
+        -- Every node in this graph has level
+        indexed_graph = fst $ bfs graph
+        sink_reachable = snd $ bfs graph
+    in
+        if sink_reachable then
+            (dfs indexed_graph, True)
+        else
+            -- Return unchanged graph because sink
+            -- cannot be reached.
+            (graph, False)
+ 
 
 
 -- Add node to the queue with specified index (level).
@@ -51,34 +80,50 @@ addToQueue curr_queue visited_nodes idx (node_to_add:nodes_to_add)
 -- level will be ignored.
 -- 1) Input graph
 -- 2) Source node
-bfs :: Graph -> Graph
+-- Returns: pair where the first element is graph and
+-- the second is bool value whether the sink node
+-- can be reached from the source node.
+bfs :: Graph -> (Graph, Bool)
 bfs graph = 
     -- Initialize the queue with source node with level 0
-    bfs_ graph [] [(source graph, 0)]
+    bfs_ graph [] [(source graph, 0)] False
 
 
 -- 1) Graph
 -- 2) List of visited nodes
 -- 3) Queue
-bfs_ :: Graph -> [Node] -> [(Node, Int)] -> Graph
-bfs_ g _ [] = g
-bfs_ graph@(Graph edges src_node sink_node) visited_list ((node, node_idx):queue_rest) =
+-- 4) Bool flag whether sink was already reached
+bfs_ :: Graph -> [Node] -> [(Node, Int)] -> Bool -> (Graph, Bool)
+-- The queue is empty, return the changed graph
+-- and bool flag.
+bfs_ g _ [] bool = (g, bool)
+bfs_ graph@(Graph edges src_node sink_node) visited_list ((node, node_idx):queue_rest) bool =
    let 
         -- Change level of the current node
         new_edges = changeNodeLevel edges node node_idx
         
-        -- Get all the neighbours of the current node
-        neighbours = nodeNeighbours graph node
+        -- Get all the edge neighbours of the current node
+        edge_neighbours = edgeNeighbours graph node
+        
+        -- Filter only edges that can be upgraded
+        appropriate_edge_neighbours = filter (\edge -> ((capacity edge) - (flow edge)) > 0) edge_neighbours
+        appropriate_node_neighbours = map end appropriate_edge_neighbours
         
         -- Create new queue. None of the added nodes should be in
         -- visited_list. Every added node to the queue will be 
         -- added as a pair with index (node_idx+1).
-        new_queue = addToQueue queue_rest visited_list (node_idx+1) neighbours
+        new_queue = addToQueue queue_rest visited_list (node_idx+1) appropriate_node_neighbours
         
         -- Add current node to visited_list
         new_visited_list = visited_list ++ [node]
     in
-        bfs_ (Graph new_edges src_node sink_node) new_visited_list new_queue
+        -- If sink node was already reached, or if sink node is in the 
+        -- queue (note that if node is in appropriate_node_neighbours list
+        -- then it is also in queue).
+        if (bool || elem sink_node appropriate_node_neighbours) then
+            bfs_ (Graph new_edges src_node sink_node) new_visited_list new_queue True
+        else
+            bfs_ (Graph new_edges src_node sink_node) new_visited_list new_queue False
 
 
 -- Upgrade flow in one edge
