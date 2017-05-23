@@ -10,7 +10,19 @@ import GraphTest
 data FlowPath = FlowPath {
     pathEdges :: [Edge],
     pathFlow :: Float
-}
+} deriving (Show, Eq)
+
+
+--nain :: Graph -> Graph
+--nain graph@(Graph edges src_node sink_node) =
+--    let
+--        -- Every node in this graph has level
+--        indexed_graph = bfs graph src_node
+--    in
+--        if (sinkReachable indexed_graph) then
+--            dfs indexed_graph
+-- 
+
 
 -- Add node to the queue with specified index (level).
 -- 1) Current queue
@@ -30,16 +42,19 @@ addToQueue curr_queue visited_nodes idx (node_to_add:nodes_to_add)
         addToQueue (curr_queue ++ [(node_to_add, idx)]) (visited_nodes ++ [node_to_add]) idx nodes_to_add
 
 
+-- TODO: does not work when called as
+-- bfs graph1 (source graph1), but works
+-- when called as bfs graph1 (Node "z" 0)
+--
 -- Assign level to every node in the graph.
 -- During following dfs, edges within the same
 -- level will be ignored.
+-- 1) Input graph
+-- 2) Source node
 bfs :: Graph -> Graph
 bfs graph = 
-    let
-        src_node = source graph
-    in
-        -- Initialize the queue with source node with level 0
-        bfs_ graph [] [(src_node, 0)]
+    -- Initialize the queue with source node with level 0
+    bfs_ graph [] [(source graph, 0)]
 
 
 -- 1) Graph
@@ -47,10 +62,10 @@ bfs graph =
 -- 3) Queue
 bfs_ :: Graph -> [Node] -> [(Node, Int)] -> Graph
 bfs_ g _ [] = g
-bfs_ graph@(Graph nodes edges src_node sink_node) visited_list ((node, node_idx):queue_rest) =
+bfs_ graph@(Graph edges src_node sink_node) visited_list ((node, node_idx):queue_rest) =
    let 
         -- Change level of the current node
-        new_nodes = changeNodeLevel nodes node node_idx
+        new_edges = changeNodeLevel edges node node_idx
         
         -- Get all the neighbours of the current node
         neighbours = nodeNeighbours graph node
@@ -63,7 +78,7 @@ bfs_ graph@(Graph nodes edges src_node sink_node) visited_list ((node, node_idx)
         -- Add current node to visited_list
         new_visited_list = visited_list ++ [node]
     in
-        bfs_ (Graph new_nodes edges src_node sink_node) new_visited_list new_queue
+        bfs_ (Graph new_edges src_node sink_node) new_visited_list new_queue
 
 
 -- Upgrade flow in one edge
@@ -84,14 +99,14 @@ upgradeEdge (x:edges) edge flow
 upgradePath :: Graph -> FlowPath -> Graph
 -- Iterate over edges of the FlowPath
 upgradePath graph (FlowPath [] _) = graph
-upgradePath (Graph graph_nodes graph_edges graph_source graph_sink) (FlowPath (path_edge:path_edges) flow_upgrade) =
+upgradePath (Graph graph_edges graph_source graph_sink) (FlowPath (path_edge:path_edges) flow_upgrade) =
     let
         -- Upgrade every edge in the graph
         new_graph_edges = upgradeEdge graph_edges path_edge flow_upgrade
     in
         -- Recursive step on graph with upgraded edges (specifically just
         -- one edge of the whole path was upgraded).
-        upgradePath (Graph graph_nodes new_graph_edges graph_source graph_sink) (FlowPath path_edges flow_upgrade)
+        upgradePath (Graph new_graph_edges graph_source graph_sink) (FlowPath path_edges flow_upgrade)
     
 
 
@@ -99,7 +114,7 @@ upgradePath (Graph graph_nodes graph_edges graph_source graph_sink) (FlowPath (p
 -- send maximal flow through that path. Suppose that bfs
 -- was already executed, so the nodes' levels are correct.
 dfs :: Graph -> Graph
-dfs graph@(Graph _ _ src_node _) =
+dfs graph@(Graph edges src_node sink_node) =
     let
         -- Try to find a path that can be upgraded
         ret_pair = dfsNode graph src_node 
@@ -126,16 +141,25 @@ dfsNode graph node@(Node node_name node_lvl) =
         -- Choose the edge when there is a node with higher level on
         -- the end and that has some reserve.
         appropriate_edges = filter (\e -> (flow e < capacity e) && (level (end e) > level node)) neighbour_edges
-        
-        -- Recursive step
-        next_edge = head appropriate_edges
     in
         -- Check if there are any appropriate edges, if there are not,
         -- then the sink is unreachable ie. no path can be upgraded.
         if appropriate_edges == [] then
             ((FlowPath [] 0), False)
         else
-            dfsEdge graph next_edge
+            let
+                results = map (dfsEdge graph) appropriate_edges
+                -- Drop all the false results (paths that cannot be upgraded)
+                -- and return the first true result (ie. first path that can
+                -- be upgraded).
+                true_results = dropWhile (\pair -> (snd pair) == False) results
+            in
+                -- Check if there is any path that
+                -- can be upgraded.
+                if true_results == [] then
+                    ((FlowPath [] 0), False)
+                else
+                    head true_results
 
 
 

@@ -45,7 +45,6 @@ nodeFromString str = (Node str 0)
 
 
 data Graph = Graph {
-    nodes :: [Node], 
     edges :: [Edge],
     source :: Node,
     sink :: Node
@@ -53,7 +52,7 @@ data Graph = Graph {
     
 
 nodeNeighbours :: Graph -> Node -> [Node]
-nodeNeighbours graph@(Graph nodes _ _ _) node =
+nodeNeighbours graph node =
     let
         edges = edgeNeighbours graph node
     in
@@ -61,17 +60,25 @@ nodeNeighbours graph@(Graph nodes _ _ _) node =
     
     
 edgeNeighbours :: Graph -> Node -> [Edge]
-edgeNeighbours (Graph nodes edges _ _) node_name =
+edgeNeighbours (Graph edges _ _) node_name =
     filter (\e -> ((start e) == node_name)) edges
     
 
-changeNodeLevel :: [Node] -> Node -> Int -> [Node]
+-- Change node level in list of edges (all edges of the
+-- graph). Change level of the node on all occurences.
+changeNodeLevel :: [Edge] -> Node -> Int -> [Edge]
 changeNodeLevel [] _ _ = []
-changeNodeLevel (node:nodes) node_to_change node_lvl
-    -- Insert Node with new node_lvl
-    | node == node_to_change = ((Node (name node) node_lvl):nodes)
+changeNodeLevel (edge@(Edge start_node end_node cap f r):edges) node_to_change node_lvl
+    -- Starting node of the edge should be changed
+    | start_node == node_to_change = 
+        ([(Edge (Node (name node_to_change) node_lvl) end_node cap f r)] ++ changeNodeLevel edges node_to_change node_lvl)
+    
+    -- Ending node of the edge should be changed
+    | end_node == node_to_change = 
+        ([(Edge start_node (Node (name node_to_change) node_lvl) cap f r)] ++ changeNodeLevel edges node_to_change node_lvl)
+    
     -- Recursive call
-    | otherwise = (node:changeNodeLevel nodes node_to_change node_lvl)
+    | otherwise = ([edge] ++ changeNodeLevel edges node_to_change node_lvl)
 
     
     
