@@ -91,6 +91,28 @@ addToQueue curr_queue visited_nodes idx (node_to_add:nodes_to_add)
         addToQueue (curr_queue ++ [(node_to_add, idx)]) (visited_nodes ++ [node_to_add]) idx nodes_to_add
 
 
+-- Return appropriate neighboring edges for given node
+-- in bfs part. Considers also edges in opposite 
+-- direction ie. edges in opposite direction that have 
+-- some flow can be upgraded.
+-- Params:
+-- 1) Starting node
+-- 2) List of edges
+bfsAppropriateEdges :: Node -> [Edge] -> [Edge]
+bfsAppropriateEdges start_node edges = 
+    filter (f start_node) edges
+    where
+        f start_node (Edge edge_start_node edge_end_node capacity_e flow_e)
+            -- Edge in right direction
+            | start_node == edge_start_node =
+                -- Check for reserve
+                flow_e < capacity_e 
+            
+            -- Edge in opposite direction
+            | otherwise =
+                flow_e > 0
+
+
 -- Assign level to every node in the graph.
 -- Params:
 -- 1) Input graph
@@ -123,8 +145,12 @@ bfs_ graph@(Graph edges src_node sink_node) visited_list ((node, node_idx):queue
         edge_neighbours = edgeNeighbors graph node
         
         -- Filter only edges that can be upgraded
-        appropriate_edge_neighbours = filter (\edge -> (capacity edge - flow edge) > 0) edge_neighbours
-        appropriate_node_neighbours = map end appropriate_edge_neighbours
+        appropriate_edge_neighbours = bfsAppropriateEdges node edge_neighbours
+        appropriate_node_neighbours = map f appropriate_edge_neighbours
+        
+        f edge 
+            | (end edge) /= node = (end edge)
+            | otherwise = (start edge)
         
         -- Create new queue. None of the added nodes should be in
         -- visited_list. Every added node to the queue will be 
@@ -147,33 +173,73 @@ bfs_ graph@(Graph edges src_node sink_node) visited_list ((node, node_idx):queue
 {-                           DFS part                               -}
 {-==================================================================-}
 
--- Upgrade flow in one edge
-upgradeEdge_ :: Edge -> Float -> Edge
-upgradeEdge_ (Edge start end capacity flow) flow_ = 
-    Edge start end capacity (flow + flow_)
+-- Increases flow in one edge in the list of edges.
+incFlow :: [Edge] -> Edge -> Float -> [Edge]
+incFlow edges edge@(Edge start_edge end_edge cap_edge flow_edge) flow_ =
+    head_edges ++ [Edge start_edge end_edge cap_edge (flow_edge + flow_)] ++ tail_edges
+    where
+        head_edges = takeWhile (/=edge) edges
+        tail_edges = tail $ dropWhile (/=edge) edges
 
--- Upgrade one edge in list of edges
-upgradeEdge :: [Edge] -> Edge -> Float -> [Edge]
-upgradeEdge [] _ _ = [] -- Unreachable code
-upgradeEdge (x:edges) edge flow 
-    -- The edge to be upgraded was reached => upgrade it
-    | x == edge = (upgradeEdge_ edge flow):edges
-    | otherwise = x:(upgradeEdge edges edge flow)
 
-    
--- Upgrade one path in the graph.
+-- Decreases flow in one edge in the list of edges.
+decFlow :: [Edge] -> Edge -> Float -> [Edge]
+decFlow edges edge@(Edge start_edge end_edge cap_edge flow_edge) flow_ =
+    head_edges ++ [Edge start_edge end_edge cap_edge (flow_edge - flow_)] ++ tail_edges
+    where
+        head_edges = takeWhile (/=edge) edges
+        tail_edges = tail $ dropWhile (/=edge) edges
+
+
 upgradePath :: Graph -> FlowPath -> Graph
+upgradePath graph flow_path@(FlowPath path_edges flow_) = 
+    upgradePath_ graph (source graph) flow_path 
+
+
+-- Considers also upgrading flow in "opposite" edges.
+-- Params:
+-- 1) Graph
+-- 2) Last node. This param is needed so the opposite
+-- edges in the flow path are recognized.
+-- 3) FlowPath
+upgradePath_ :: Graph -> Node -> FlowPath -> Graph
 -- Iterate over edges of the FlowPath
-upgradePath graph (FlowPath [] _) = graph
-upgradePath (Graph graph_edges graph_source graph_sink) (FlowPath (path_edge:path_edges) flow_upgrade) =
-    let
-        -- Upgrade every edge in the graph
-        new_graph_edges = upgradeEdge graph_edges path_edge flow_upgrade
-    in
-        -- Recursive step on graph with upgraded edges (specifically just
-        -- one edge of the whole path was upgraded).
-        upgradePath (Graph new_graph_edges graph_source graph_sink) (FlowPath path_edges flow_upgrade)
-    
+upgradePath_ graph _ (FlowPath [] _) = graph
+upgradePath_ graph last_node (FlowPath (path_edge:path_edges) flow_upgrade)
+    -- Next edge is in right direction
+    | last_node == start path_edge = 
+        -- Copy graph with modified edges to the recursive call
+        upgradePath_ (Graph new_edges_inc (source graph) (sink graph)) (end path_edge) new_flow_path
+        
+    | otherwise =
+        -- Copy graph with modified edges to the recursive call
+        upgradePath_ (Graph new_edges_dec (source graph) (sink graph)) (start path_edge) new_flow_path 
+        
+        where
+            new_edges_dec = decFlow (edges graph) path_edge flow_upgrade
+            new_edges_inc = incFlow (edges graph) path_edge flow_upgrade
+            -- FlowPath without head
+            new_flow_path = (FlowPath path_edges flow_upgrade)
+
+
+-- Filters appropriate neighboring edges for dfs part. Checks
+-- reserve in edges and for correct levels of nodes.
+-- Params:
+-- 1) Starting node
+-- 2) List of edges
+dfsAppropriateEdges :: Node -> [Edge] -> [Edge]
+dfsAppropriateEdges start_node edges = 
+    filter (f start_node) edges
+    where
+        f start_node (Edge edge_start_node edge_end_node capacity_e flow_e)
+            -- Edge in right direction
+            | start_node == edge_start_node =
+                -- Check for reserve and level
+                flow_e < capacity_e && level edge_end_node == ((level edge_start_node) + 1)
+        
+            -- Edge in opposite direction
+            | otherwise =
+                flow_e > 0 && level edge_start_node == ((level edge_end_node) + 1)
 
 
 -- Until there is an augmenting path from source to sink,
@@ -210,8 +276,9 @@ dfsNode graph node@(Node node_name node_lvl) =
     let
         neighbour_edges = edgeNeighbors graph node
         -- Choose the edge when there is a node with higher level on
-        -- the end and that has some reserve.
-        appropriate_edges = filter (\e -> (flow e < capacity e) && (level (end e) > level node)) neighbour_edges
+        -- the end and that has some reserve. Check also for edges in
+        -- opposite direction.
+        appropriate_edges = dfsAppropriateEdges node neighbour_edges
     in
         -- Check if there are any appropriate edges, if there are not,
         -- then the sink is unreachable ie. no path can be upgraded.
@@ -219,7 +286,7 @@ dfsNode graph node@(Node node_name node_lvl) =
             (FlowPath [] 0, False)
         else
             let
-                results = map (dfsEdge graph) appropriate_edges
+                results = map (dfsEdge graph node) appropriate_edges
                 -- Drop all the false results (paths that are not augmenting)
                 -- and return the first true result. 
                 true_results = dropWhile (not.snd) results
@@ -232,27 +299,48 @@ dfsNode graph node@(Node node_name node_lvl) =
                     head true_results
 
 
-
--- Recursively calls dfsNode on the end of the edge and computes
--- maximum flow value that should be returned.
-dfsEdge :: Graph -> Edge -> (FlowPath, Bool)
-dfsEdge graph edge
-    -- Check iwhether sink was reached
-    | end edge == sink graph = (FlowPath new_path (capacity edge - flow edge), True)
-    -- Check whther this edge is tight throat
-    | capacity edge < max_flow = (FlowPath new_path (capacity edge), bool)
-    | otherwise = (FlowPath new_path max_flow, bool)
-    where
-        ret_pair = dfsNode graph (end edge)
-        max_flow = pathFlow (fst ret_pair)
-        path = pathEdges (fst ret_pair)
-        bool = snd ret_pair
+-- Considers also upgrading in opposite directions, ie flow in edge in opposite
+-- direction can be upgraded by decreasing the flow in this edge.
+-- Params:
+-- 1) Graph
+-- 2) Start node
+dfsEdge :: Graph -> Node -> Edge -> (FlowPath, Bool)
+dfsEdge graph start_node edge
+    -- Edge in right direction
+    | start_node == start edge =
+        right_direction graph edge
         
-        -- Path to be returned
-        new_path = (edge:path)
+    -- Edge in opposite direction
+    | otherwise =
+        opposite_direction graph edge
+        
+        where
+            right_direction graph edge
+                -- Check whether sink was reached
+                | end edge == sink graph = (FlowPath [edge] (capacity edge - flow edge), True)
+                -- Check whether this edge is tight throat
+                | capacity edge - flow edge < max_flow_r = (FlowPath new_path_r (capacity edge - flow edge), bool_r)
+                | otherwise = (FlowPath new_path_r max_flow_r, bool_r)
 
-
-
-
-
-
+            opposite_direction graph edge
+                -- Check whether sink was reached
+                | start edge == sink graph = (FlowPath [edge] (flow edge), True)
+                -- Check whether this edge is tight throat
+                | flow edge > 0 = (FlowPath new_path_o (flow edge), bool_o)
+                | otherwise = (FlowPath new_path_o max_flow_o, bool_o)
+            
+            -- Recursive call definitions for edge in right direction
+            ret_pair_r = dfsNode graph (end edge)
+            max_flow_r = pathFlow (fst ret_pair_r)
+            path_r = pathEdges (fst ret_pair_r)
+            bool_r = snd ret_pair_r
+            -- Path to be returned
+            new_path_r = (edge:path_r)
+            
+            -- Recursive call definitions for edge in opposite direction
+            ret_pair_o = dfsNode graph (start edge)
+            max_flow_o = pathFlow (fst ret_pair_o)
+            path_o = pathEdges (fst ret_pair_o)
+            bool_o = snd ret_pair_o
+            -- Path to be returned
+            new_path_o = (edge:path_o)

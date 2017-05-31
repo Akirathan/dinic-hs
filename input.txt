@@ -1,7 +1,13 @@
-src
-sink
-src u 2
-src v 1
-u v 1
-u sink 1
-v sink 2
+A
+G
+A B 3
+A D 3
+B C 4
+C A 3
+C D 1
+C E 2
+D E 2
+D F 6
+E B 1
+E G 1
+F G 9

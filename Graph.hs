@@ -62,10 +62,10 @@ graphFromString str =
     in
         (Graph edges source sink)
 
-    
+
 edgeNeighbors :: Graph -> Node -> [Edge]
-edgeNeighbors (Graph edges _ _) node_name =
-    filter (\e -> ((start e) == node_name)) edges
+edgeNeighbors (Graph edges _ _) node =
+    filter (\e -> ((start e) == node) || (end e) == node) edges
     
 
 -- Change node level in list of edges (all edges of the

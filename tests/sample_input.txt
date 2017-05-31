@@ -1,0 +1,7 @@
+src
+sink
+src u 2
+src v 1
+u v 1
+u sink 1
+v sink 2
